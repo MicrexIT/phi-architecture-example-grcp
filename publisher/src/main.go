@@ -1,20 +1,32 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/segmentio/kafka-go"
 	"io"
 	"io/ioutil"
 	"log"
+	"github.com/segmentio/kafka-go"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 )
 
+type Event struct {
+	Name    string      `json:"name"`
+	Version string      `json:"version"`
+	Payload interface{} `json:"payload"`
+}
+
+func main() {
+	http.ListenAndServe(":80", http.HandlerFunc(handler))
+	fmt.Println("server started")
+}
+
 func handler(w http.ResponseWriter, r *http.Request) {
-	path := strings.Split(r.URL.Path[1:], "/")
+	path := strings.Split(r.URL.Path[1:], "/") // refactor
 	switch path[1] {
 	case "product":
 		productHandler(w, r, path)
@@ -27,162 +39,165 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type Event struct {
-	Name    string      `json:"name"`
-	Version string      `json:"version"`
-	Payload interface{} `json:"payload"`
-}
-
 func productHandler(w http.ResponseWriter, r *http.Request, path []string) {
-
-	fmt.Println("product handler starting...")
 	if path[3] != "watched" {
 		fmt.Printf("cannot find the %v path in productHandler\n", path[3])
 		http.NotFound(w, r)
+		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	// 1. determine method POST/OPTION
-	if r.Method == http.MethodPost {
-		productName := path[2]
-		if !isAlphaNum(productName) {
-			io.WriteString(w, productName+" is invalid")
-			http.NotFound(w, r)
-		}
 
-		// get visitor name from body
-		rawBody, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		type Body struct {
-			Visitor string `json:"visitor"`
-		}
-		body := Body{Visitor: "anonymous"}
-
-		err = json.Unmarshal(rawBody, &body)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		// write to kafka
-		msg := createProductMessage(w, "product_watched", path[0], productName, body.Visitor)
-		pushMessage(msg, w, r)
-
-	} else if r.Method == http.MethodOptions {
+	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
-	} else {
-		http.NotFound(w, r)
+		return
 	}
+
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+
+	productName := path[2]
+	if !isAlphaNum(productName) {
+		io.WriteString(w, productName+" is invalid")
+		http.NotFound(w, r)
+		return
+	}
+
+	rawBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+
+	body := struct {
+		Visitor string `json:"visitor"`
+	}{
+		Visitor: "anonymous",
+	}
+
+	err = json.Unmarshal(rawBody, &body)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	event := Event{
+		Name:    "",
+		Version: "v1.0",
+		Payload: struct {
+			Product string `json:"product"`
+			Visitor string `json:"visitor"`
+		}{
+			Product: productName,
+			Visitor: body.Visitor,
+		},
+	}
+	msg, err := createMessage(&event)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		fmt.Println(err)
+	}
+	status, err := pushMessage(msg)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		fmt.Println(err)
+	}
+	w.WriteHeader(int(status))
+	fmt.Fprintf(w, "%s\n", event)
+
 }
 
 func customerHandler(w http.ResponseWriter, r *http.Request, path []string) {
 	if path[3] != "bought" {
 		io.WriteString(w, path[3]+" is invalid")
 		http.NotFound(w, r)
+		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method == http.MethodPost {
-		customerName := path[2]
-		if !isAlpha(customerName) {
-			io.WriteString(w, customerName+" is invalid")
-			http.NotFound(w, r)
-		}
-
-		// get body products
-		// for each product
-		// get product from body
-		rawBody, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		type Body struct {
-			Products []string `json:"products"`
-		}
-
-		body := Body{Products: []string{}}
-
-		err = json.Unmarshal(rawBody, &body)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		for _, productName := range body.Products {
-			// TODO: Probably could use goroutines here
-			// Can it impact my kafka writer?
-			msg := createCustomerMessage(w, "product_bought", path[0], productName, customerName)
-			pushMessage(msg, w, r)
-		}
-
-	} else if r.Method == http.MethodOptions {
+	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
-	} else {
+		return
+	}
+	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
-}
-func createCustomerMessage(w http.ResponseWriter, msgName string, msgVersion string, productName string, customerName string) *kafka.Message {
-	type Payload struct {
-		Product  string `json:"product"`
-		Customer string `json:"customer"`
+
+	customerName := path[2]
+	if !isAlpha(customerName) {
+		io.WriteString(w, customerName+" is invalid")
+		http.NotFound(w, r)
+		return
 	}
 
-	event := Event{
-		Name:    msgName,
-		Version: msgVersion,
-		Payload: Payload{
-			Product:  productName,
-			Customer: customerName,
-		},
-	}
-	return createMessage(w, &event)
-}
-func createProductMessage(w http.ResponseWriter, msgName string, msgVersion string, productName string, customerName string) *kafka.Message {
-	type Payload struct {
-		Product string `json:"product"`
-		Visitor string `json:"visitor"`
-	}
-
-	event := Event{
-		Name:    msgName,
-		Version: msgVersion,
-		Payload: Payload{
-			Product: productName,
-			Visitor: customerName,
-		},
-	}
-	return createMessage(w, &event)
-}
-
-func createMessage(w http.ResponseWriter, event *Event) *kafka.Message {
-	value, err := json.Marshal(*event)
-
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
-		log.Fatalln(err)
-	}
-
-	msg := kafka.Message{
-		Value: value,
-	}
-
-	return &msg
-}
-
-func pushMessage(msg *kafka.Message, w http.ResponseWriter, r *http.Request) {
-	kafkaWriter := getKafkaWriter()
-	err := kafkaWriter.WriteMessages(r.Context(), *msg)
-
+	rawBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+
+	body :=  struct {
+		Products []string `json:"products"`
+	}{Products: []string{}}
+
+	err = json.Unmarshal(rawBody, &body)
+	if err != nil {
 		log.Fatalln(err)
 	}
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "%s\n", msg)
+
+	w.Header().Set("Content-Type", "application/json")
+	for _, productName := range body.Products {
+		event := Event{
+			Name:    "",
+			Version: "v1.0",
+			Payload: struct {
+				Product string `json:"product"`
+				Customer string `json:"customer"`
+			}{
+				Product: productName,
+				Customer: customerName,
+			},
+		}
+		msg, err := createMessage(&event)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(err.Error()))
+			fmt.Println(err)
+		}
+		status, err := pushMessage(msg)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(err.Error()))
+			fmt.Println(err)
+		}
+		w.WriteHeader(int(status))
+		fmt.Fprintf(w, "%s\n", event)
+	}
+}
+
+
+func createMessage(event *Event) (*kafka.Message, error) {
+	value, err := json.Marshal(*event)
+	if err != nil {
+		return nil, err
+	}
+	msg := kafka.Message{
+		Value: value,
+	}
+	return &msg, nil
+}
+
+func pushMessage(msg *kafka.Message) (http.ConnState , error) {
+	kafkaWriter := getKafkaWriter()
+	err := kafkaWriter.WriteMessages(context.Background(), *msg)
+
+	if err != nil {
+		return http.StatusBadRequest, err
+	}
+	return http.StatusOK, err
 }
 
 func getKafkaWriter() *kafka.Writer {
@@ -200,11 +215,6 @@ func getKafkaWriter() *kafka.Writer {
 		Topic:    topic,
 		Balancer: &kafka.LeastBytes{},
 	})
-}
-
-func main() {
-	http.ListenAndServe(":80", http.HandlerFunc(handler))
-	fmt.Println("server started")
 }
 
 // isAlphaNum returns true if the string passed as argument is alphanumeric

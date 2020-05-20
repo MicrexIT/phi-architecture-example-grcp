@@ -74,6 +74,7 @@ func HandleMessage(m *kafka.Message) {
 	dbClient := mongoClient()
 	if event.Version != "v1.0" {
 		fmt.Println("Wrong version")
+		return
 	} else if event.Name == "product_bought" {
 		// products
 		collectionName := "products"
