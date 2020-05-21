@@ -4,6 +4,6 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY ./src .
 RUN go build -o server .
-EXPOSE 80
+EXPOSE 50051
 CMD ["/app/server"]
 

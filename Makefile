@@ -8,5 +8,6 @@ status:
 	docker-compose ps
 inspect:
 	docker-compose logs -f ${SERVICE}
+
 clean:
 	rm -rf data/db/*

@@ -23,6 +23,24 @@ type Payload struct {
 	Visitor  string `json:"visitor"`
 }
 
+func main() {
+	reader := kafkaReader()
+	defer reader.Close()
+
+	fmt.Println("start consuming ...")
+	for {
+		msg, err := reader.ReadMessage(context.Background())
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Println("start Reading msg ...")
+		fmt.Print(string(msg.Value))
+		HandleMessage(&msg)
+	}
+
+}
+
 func mongoClient() func(collectionName string) *mongo.Collection {
 	uri, ok := os.LookupEnv("ENTITY_STORE")
 	if !ok {
@@ -127,20 +145,3 @@ func decodeMsg(m *kafka.Message) *Event {
 	return &event
 }
 
-func main() {
-	reader := kafkaReader()
-	defer reader.Close()
-
-	fmt.Println("start consuming ...")
-	for {
-		msg, err := reader.ReadMessage(context.Background())
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Println("start Reading msg ...")
-		fmt.Print(string(msg.Value))
-		HandleMessage(&msg)
-	}
-
-}

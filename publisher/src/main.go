@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"log"
+	schema "github.com/micrexIT/phi-architecture-example-protobuf"
 	"github.com/segmentio/kafka-go"
-	"net/http"
+	"google.golang.org/grpc"
+	"log"
+	"net"
 	"os"
-	"regexp"
-	"strings"
 )
 
 type Event struct {
@@ -20,164 +18,87 @@ type Event struct {
 	Payload interface{} `json:"payload"`
 }
 
+type PublisherServer struct {
+	schema.UnimplementedPublisherServer
+}
+
 func main() {
-	http.ListenAndServe(":80", http.HandlerFunc(handler))
-	fmt.Println("server started")
+	port := 50052
+	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	var opts []grpc.ServerOption
+
+	grpcServer := grpc.NewServer(opts...)
+	schema.RegisterPublisherServer(grpcServer, newServer())
+	grpcServer.Serve(lis)
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	path := strings.Split(r.URL.Path[1:], "/") // refactor
-	switch path[1] {
-	case "product":
-		productHandler(w, r, path)
-
-	case "customer":
-		customerHandler(w, r, path)
-
-	default:
-		http.NotFound(w, r)
-	}
+func newServer() *PublisherServer {
+	s := &PublisherServer{}
+	return s
 }
 
-func productHandler(w http.ResponseWriter, r *http.Request, path []string) {
-	if path[3] != "watched" {
-		fmt.Printf("cannot find the %v path in productHandler\n", path[3])
-		http.NotFound(w, r)
-		return
-	}
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.NotFound(w, r)
-		return
-	}
-
-	productName := path[2]
-	if !isAlphaNum(productName) {
-		io.WriteString(w, productName+" is invalid")
-		http.NotFound(w, r)
-		return
-	}
-
-	rawBody, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(err.Error()))
-		return
-	}
-
-	body := struct {
-		Visitor string `json:"visitor"`
-	}{
-		Visitor: "anonymous",
-	}
-
-	err = json.Unmarshal(rawBody, &body)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
+func (i *PublisherServer) PublishProduct(ctx context.Context, watched *schema.ProductWatched) (*schema.Status, error) {
+	fmt.Println(watched.GetProduct())
+	fmt.Println(watched)
+	fmt.Println(watched.GetVisitor())
 	event := Event{
-		Name:    "",
+		Name:    "product_watched",
 		Version: "v1.0",
 		Payload: struct {
 			Product string `json:"product"`
 			Visitor string `json:"visitor"`
 		}{
-			Product: productName,
-			Visitor: body.Visitor,
+			Product: watched.GetProduct(),
+			Visitor: watched.GetVisitor(),
 		},
 	}
 	msg, err := createMessage(&event)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
-		fmt.Println(err)
-	}
-	status, err := pushMessage(msg)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
-		fmt.Println(err)
-	}
-	w.WriteHeader(int(status))
-	fmt.Fprintf(w, "%s\n", event)
 
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	err = pushMessage(ctx, msg)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	return &schema.Status{Status: 1}, nil
 }
 
-func customerHandler(w http.ResponseWriter, r *http.Request, path []string) {
-	if path[3] != "bought" {
-		io.WriteString(w, path[3]+" is invalid")
-		http.NotFound(w, r)
-		return
-	}
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	if r.Method != http.MethodPost {
-		http.NotFound(w, r)
-		return
-	}
-
-	customerName := path[2]
-	if !isAlpha(customerName) {
-		io.WriteString(w, customerName+" is invalid")
-		http.NotFound(w, r)
-		return
-	}
-
-	rawBody, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(err.Error()))
-		return
-	}
-
-	body :=  struct {
-		Products []string `json:"products"`
-	}{Products: []string{}}
-
-	err = json.Unmarshal(rawBody, &body)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	for _, productName := range body.Products {
+func (i *PublisherServer) PublishCustomer(ctx context.Context, bought *schema.CustomerBoughtMany) (*schema.Status, error) {
+	for _, customerBought := range (*bought).CustomerBoughtMany {
 		event := Event{
-			Name:    "",
+			Name:    "product_bought",
 			Version: "v1.0",
 			Payload: struct {
-				Product string `json:"product"`
+				Product  string `json:"product"`
 				Customer string `json:"customer"`
 			}{
-				Product: productName,
-				Customer: customerName,
+				Product:  customerBought.GetProduct(),
+				Customer: customerBought.GetCustomer(),
 			},
 		}
 		msg, err := createMessage(&event)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(err.Error()))
 			fmt.Println(err)
+			return nil, err
 		}
-		status, err := pushMessage(msg)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(err.Error()))
-			fmt.Println(err)
-		}
-		w.WriteHeader(int(status))
-		fmt.Fprintf(w, "%s\n", event)
-	}
-}
 
+		err = pushMessage(ctx, msg)
+		if err != nil {
+			fmt.Println(err)
+			return nil, err
+		}
+	}
+
+	return &schema.Status{Status: 1}, nil
+}
 
 func createMessage(event *Event) (*kafka.Message, error) {
 	value, err := json.Marshal(*event)
@@ -190,14 +111,9 @@ func createMessage(event *Event) (*kafka.Message, error) {
 	return &msg, nil
 }
 
-func pushMessage(msg *kafka.Message) (http.ConnState , error) {
+func pushMessage(ctx context.Context, msg *kafka.Message) error {
 	kafkaWriter := getKafkaWriter()
-	err := kafkaWriter.WriteMessages(context.Background(), *msg)
-
-	if err != nil {
-		return http.StatusBadRequest, err
-	}
-	return http.StatusOK, err
+	return kafkaWriter.WriteMessages(ctx, *msg)
 }
 
 func getKafkaWriter() *kafka.Writer {
@@ -215,14 +131,4 @@ func getKafkaWriter() *kafka.Writer {
 		Topic:    topic,
 		Balancer: &kafka.LeastBytes{},
 	})
-}
-
-// isAlphaNum returns true if the string passed as argument is alphanumeric
-func isAlphaNum(s string) bool {
-	return regexp.MustCompile(`^[[:alnum:]]+$`).MatchString(s)
-}
-
-// isAlphaNum returns true if the string passed as argument is alpha a-zA-Z
-func isAlpha(s string) bool {
-	return regexp.MustCompile(`^[[:alpha:]]+$`).MatchString(s)
 }

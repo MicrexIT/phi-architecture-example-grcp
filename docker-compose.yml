@@ -7,7 +7,7 @@ services:
       - EVENT_STORE=event-store:29092
       - TOPIC=events
     ports:
-      - '8081:80'
+      - '50052:50052'
     depends_on:
       - event-store
   handler:
@@ -28,7 +28,7 @@ services:
       - ENTITY_STORE=entity-store:27017
       - DATABASE=entities
     ports:
-      - '8082:80'
+      - '50051:50051'
     depends_on:
       - entity-store
   entity-store:
