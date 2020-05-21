@@ -6,6 +6,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	proto "github.com/MicrexIT/phi-architecture-example-protobuf"
 	"log"
 	"net/http"
 	"os"
@@ -23,6 +24,11 @@ type Product struct {
 	Bought  int64  `json:"bought"`
 }
 
+func main() {
+	proto.
+	http.ListenAndServe(":80", http.HandlerFunc(handler))
+	fmt.Println("server started")
+}
 func handler(w http.ResponseWriter, r *http.Request) {
 	path := strings.Split(r.URL.Path[1:], "/")
 	switch path[1] {
@@ -97,7 +103,4 @@ func mongoClient() func(collectionName string) *mongo.Collection {
 	}
 }
 
-func main() {
-	http.ListenAndServe(":80", http.HandlerFunc(handler))
-	fmt.Println("server started")
-}
+
