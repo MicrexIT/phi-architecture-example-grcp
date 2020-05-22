@@ -41,9 +41,6 @@ func newServer() *PublisherServer {
 }
 
 func (i *PublisherServer) PublishProduct(ctx context.Context, watched *schema.ProductWatched) (*schema.Status, error) {
-	fmt.Println(watched.GetProduct())
-	fmt.Println(watched)
-	fmt.Println(watched.GetVisitor())
 	event := Event{
 		Name:    "product_watched",
 		Version: "v1.0",

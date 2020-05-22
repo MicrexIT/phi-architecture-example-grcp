@@ -14,7 +14,7 @@ import (
 	"os"
 )
 
-type InspectorServer struct{
+type InspectorServer struct {
 	schema.UnimplementedInspectorServer
 }
 
@@ -41,7 +41,7 @@ func newServer() *InspectorServer {
 	return s
 }
 
-func (i *InspectorServer) InspectProduct(ctx context.Context, _ *schema.Empty) (*schema.ProductMany, error){
+func (i *InspectorServer) InspectProduct(ctx context.Context, _ *schema.Empty) (*schema.ProductMany, error) {
 	dbClient := mongoClient()
 	collectionName := "products"
 	collection := dbClient(collectionName)
@@ -65,7 +65,7 @@ func (i *InspectorServer) InspectProduct(ctx context.Context, _ *schema.Empty) (
 	return &resp, nil
 }
 
-func (i *InspectorServer) InspectCustomer(ctx context.Context, req *schema.Empty) (*schema.CustomerMany, error){
+func (i *InspectorServer) InspectCustomer(ctx context.Context, req *schema.Empty) (*schema.CustomerMany, error) {
 	dbClient := mongoClient()
 	collectionName := "customers"
 	collection := dbClient(collectionName)
@@ -78,7 +78,6 @@ func (i *InspectorServer) InspectCustomer(ctx context.Context, req *schema.Empty
 	resp := schema.CustomerMany{}
 
 	for cursor.Next(ctx) {
-
 
 		var decoded schema.Customer
 
@@ -113,5 +112,3 @@ func mongoClient() func(collectionName string) *mongo.Collection {
 		return client.Database(database).Collection(collectionName)
 	}
 }
-
-

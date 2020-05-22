@@ -68,7 +68,7 @@ func HandleMessage(m *kafka.Message) {
 
 	switch event.Name {
 	case "product_bought":
-		increaseProductBought(event)//split in two: more meaningful; updateCust + updateProduct
+		increaseProductBought(event) //split in two: more meaningful; updateCust + updateProduct
 		increaseCustomerProduct(event)
 	case "product_watched":
 		increaseProductWatched(event)
@@ -79,53 +79,26 @@ func HandleMessage(m *kafka.Message) {
 }
 
 func increaseProductWatched(event *Event) {
-		dbClient := mongoClient()
-		collectionName := "products"
-		collection := dbClient(collectionName)
-
-		filter := bson.M{"name": event.Payload.Product}
-
-		update := bson.M{
-			"$inc": bson.M{"watched": 1},
-		}
-
-		var updatedDocument bson.M
-		err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
-		if err!= nil {
-			if err == mongo.ErrNoDocuments {
-				fmt.Println(err)
-				_, err =collection.InsertOne(context.Background(),struct{
-					Name string `json:"name"`
-					Watched int64 `json:"watched"`
-					Bought int64 `json:"bought"`
-				}{Name: event.Payload.Product, Watched: 1, Bought: 0})
-				if err != nil {
-					fmt.Println(err)
-					return
-				}
-			}
-		}
-}
-
-func increaseCustomerProduct(event *Event) {
 	dbClient := mongoClient()
-	collectionName := "customers"
+	collectionName := "products"
 	collection := dbClient(collectionName)
 
-	filter := bson.M{"name": event.Payload.Customer}
+	filter := bson.M{"name": event.Payload.Product}
+
 	update := bson.M{
-		"$inc": bson.M{"products": 1},
+		"$inc": bson.M{"watched": 1},
 	}
 
 	var updatedDocument bson.M
 	err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
-	if err!= nil {
+	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			fmt.Println(err)
-			collection.InsertOne(context.Background(),struct{
-				Name string `json:"name"`
-				Products int64 `json:"products"`
-			}{Name: event.Payload.Customer, Products: 1})
+			_, err = collection.InsertOne(context.Background(), struct {
+				Name    string `json:"name"`
+				Watched int64  `json:"watched"`
+				Bought  int64  `json:"bought"`
+			}{Name: event.Payload.Product, Watched: 1, Bought: 0})
 			if err != nil {
 				fmt.Println(err)
 				return
@@ -147,10 +120,10 @@ func increaseProductBought(event *Event) {
 
 	var updatedDocument bson.M
 	err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
-	if err!= nil {
+	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			fmt.Println(err)
-			collection.InsertOne(context.Background(), struct {
+			_, err = collection.InsertOne(context.Background(), struct {
 				Name    string `json:"name"`
 				Watched int64  `json:"watched"`
 				Bought  int64  `json:"bought"`
@@ -162,6 +135,33 @@ func increaseProductBought(event *Event) {
 		}
 	}
 
+}
+
+func increaseCustomerProduct(event *Event) {
+	dbClient := mongoClient()
+	collectionName := "customers"
+	collection := dbClient(collectionName)
+
+	filter := bson.M{"name": event.Payload.Customer}
+	update := bson.M{
+		"$inc": bson.M{"products": 1},
+	}
+
+	var updatedDocument bson.M
+	err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			fmt.Println(err)
+			_, err = collection.InsertOne(context.Background(), struct {
+				Name     string `json:"name"`
+				Products int64  `json:"products"`
+			}{Name: event.Payload.Customer, Products: 1})
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+		}
+	}
 }
 
 func mongoClient() func(collectionName string) *mongo.Collection {
@@ -195,4 +195,3 @@ func decodeMsg(m *kafka.Message) *Event {
 	}
 	return &event
 }
-
