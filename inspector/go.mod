@@ -4,7 +4,7 @@ go 1.14
 
 require (
 	github.com/golang/protobuf v1.4.2 // indirect
-	github.com/micrexIT/phi-architecture-example-protobuf v1.5.1
+	github.com/micrexIT/phi-architecture-example-protobuf v1.6.1
 	go.mongodb.org/mongo-driver v1.3.3
 	golang.org/x/net v0.0.0-20200520182314-0ba52f642ac2 // indirect
 	golang.org/x/sys v0.0.0-20200519105757-fe76b779f299 // indirect

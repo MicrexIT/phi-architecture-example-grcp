@@ -17,6 +17,7 @@ type Event struct {
 	Version string  `json:"version"`
 	Payload Payload `json:"payload"`
 }
+
 type Payload struct {
 	Product  string `json:"product"`
 	Customer string `json:"customer"`
@@ -39,29 +40,6 @@ func main() {
 		HandleMessage(&msg)
 	}
 
-}
-
-func mongoClient() func(collectionName string) *mongo.Collection {
-	uri, ok := os.LookupEnv("ENTITY_STORE")
-	if !ok {
-		// default val
-		uri = "localhost:27017"
-	}
-	database, ok := os.LookupEnv("DATABASE")
-	if !ok {
-		// default val
-		database = "entities"
-	}
-
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://"+uri))
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return func(collectionName string) *mongo.Collection {
-		return client.Database(database).Collection(collectionName)
-	}
 }
 
 func kafkaReader() *kafka.Reader {
@@ -87,37 +65,21 @@ func kafkaReader() *kafka.Reader {
 
 func HandleMessage(m *kafka.Message) {
 	event := decodeMsg(m)
-	fmt.Println("decoded message", event)
 
-	dbClient := mongoClient()
-	if event.Version != "v1.0" {
-		fmt.Println("Wrong version")
-		return
-	} else if event.Name == "product_bought" {
-		// products
-		collectionName := "products"
-		collection := dbClient(collectionName)
+	switch event.Name {
+	case "product_bought":
+		increaseProductBought(event)//split in two: more meaningful; updateCust + updateProduct
+		increaseCustomerProduct(event)
+	case "product_watched":
+		increaseProductWatched(event)
+	default:
+		fmt.Println("Unknown event: \n")
+		fmt.Printf("%v", *event)
+	}
+}
 
-		filter := bson.M{"name": event.Payload.Product}
-		update := bson.M{
-			"$inc": bson.M{"bought": 1},
-		}
-
-		_ = collection.FindOneAndUpdate(context.Background(), filter, update)
-		// customers
-		collectionName = "customers"
-		collection = dbClient(collectionName)
-
-		filter = bson.M{"name": event.Payload.Product}
-		update = bson.M{
-			"$inc": bson.M{"products": 1},
-		}
-
-		_ = collection.FindOneAndUpdate(context.Background(), filter, update)
-		fmt.Println("Finished Updating Product bought...")
-
-	} else if event.Name == "product_watched" {
-		fmt.Println("product watched!!!")
+func increaseProductWatched(event *Event) {
+		dbClient := mongoClient()
 		collectionName := "products"
 		collection := dbClient(collectionName)
 
@@ -127,12 +89,101 @@ func HandleMessage(m *kafka.Message) {
 			"$inc": bson.M{"watched": 1},
 		}
 
-		res := collection.FindOneAndUpdate(context.Background(), filter, update)
-		fmt.Println("Finished Updating Product watched...")
-		fmt.Println(res)
-	} else {
-		// unknown
-		fmt.Println("Unknown request...")
+		var updatedDocument bson.M
+		err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
+		if err!= nil {
+			if err == mongo.ErrNoDocuments {
+				fmt.Println(err)
+				_, err =collection.InsertOne(context.Background(),struct{
+					Name string `json:"name"`
+					Watched int64 `json:"watched"`
+					Bought int64 `json:"bought"`
+				}{Name: event.Payload.Product, Watched: 1, Bought: 0})
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+			}
+		}
+}
+
+func increaseCustomerProduct(event *Event) {
+	dbClient := mongoClient()
+	collectionName := "customers"
+	collection := dbClient(collectionName)
+
+	filter := bson.M{"name": event.Payload.Customer}
+	update := bson.M{
+		"$inc": bson.M{"products": 1},
+	}
+
+	var updatedDocument bson.M
+	err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
+	if err!= nil {
+		if err == mongo.ErrNoDocuments {
+			fmt.Println(err)
+			collection.InsertOne(context.Background(),struct{
+				Name string `json:"name"`
+				Products int64 `json:"products"`
+			}{Name: event.Payload.Customer, Products: 1})
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+		}
+	}
+}
+
+func increaseProductBought(event *Event) {
+
+	dbClient := mongoClient()
+	collectionName := "products"
+	collection := dbClient(collectionName)
+
+	filter := bson.M{"name": event.Payload.Product}
+	update := bson.M{
+		"$inc": bson.M{"bought": 1},
+	}
+
+	var updatedDocument bson.M
+	err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
+	if err!= nil {
+		if err == mongo.ErrNoDocuments {
+			fmt.Println(err)
+			collection.InsertOne(context.Background(), struct {
+				Name    string `json:"name"`
+				Watched int64  `json:"watched"`
+				Bought  int64  `json:"bought"`
+			}{Name: event.Payload.Product, Watched: 0, Bought: 1})
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+		}
+	}
+
+}
+
+func mongoClient() func(collectionName string) *mongo.Collection {
+	uri, ok := os.LookupEnv("ENTITY_STORE")
+	if !ok {
+		// default val
+		uri = "localhost:27017"
+	}
+	database, ok := os.LookupEnv("DATABASE")
+	if !ok {
+		// default val
+		database = "entities"
+	}
+
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://"+uri))
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return func(collectionName string) *mongo.Collection {
+		return client.Database(database).Collection(collectionName)
 	}
 }
 
