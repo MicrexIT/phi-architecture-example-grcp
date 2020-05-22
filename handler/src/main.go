@@ -152,22 +152,20 @@ func increaseCustomerProduct(event *Event) {
 func (mw *MongoWriter) write() {
 
 	dbClient := mongoClient()
-
 	collection := dbClient(mw.CollectionName)
 
 	var updatedDocument bson.M
 	err := collection.FindOneAndUpdate(context.Background(), mw.Filter, mw.Update).Decode(&updatedDocument)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
+	if err == nil {return}
+	if err == mongo.ErrNoDocuments {
 			fmt.Println(err)
 			_, err = collection.InsertOne(context.Background(), mw.Insert)
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-		}
+	}
+	if err != nil {
+		fmt.Println(err)
 	}
 }
+
 func mongoClient() func(collectionName string) *mongo.Collection {
 	uri, ok := os.LookupEnv("ENTITY_STORE")
 	if !ok {
