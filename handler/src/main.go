@@ -24,6 +24,13 @@ type Payload struct {
 	Visitor  string `json:"visitor"`
 }
 
+type MongoWriter struct {
+	CollectionName string
+	Filter         bson.M
+	Update         bson.M
+	Insert         interface{}
+}
+
 func main() {
 	reader := kafkaReader()
 	defer reader.Close()
@@ -65,7 +72,6 @@ func kafkaReader() *kafka.Reader {
 
 func HandleMessage(m *kafka.Message) {
 	event := decodeMsg(m)
-
 	switch event.Name {
 	case "product_bought":
 		increaseProductBought(event) //split in two: more meaningful; updateCust + updateProduct
@@ -79,83 +85,82 @@ func HandleMessage(m *kafka.Message) {
 }
 
 func increaseProductWatched(event *Event) {
-	dbClient := mongoClient()
 	collectionName := "products"
-	collection := dbClient(collectionName)
-
+	insert := struct {
+		Name    string `json:"name"`
+		Watched int64  `json:"watched"`
+		Bought  int64  `json:"bought"`
+	}{Name: event.Payload.Product, Watched: 1, Bought: 0}
 	filter := bson.M{"name": event.Payload.Product}
 
 	update := bson.M{
 		"$inc": bson.M{"watched": 1},
 	}
 
-	var updatedDocument bson.M
-	err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			fmt.Println(err)
-			_, err = collection.InsertOne(context.Background(), struct {
-				Name    string `json:"name"`
-				Watched int64  `json:"watched"`
-				Bought  int64  `json:"bought"`
-			}{Name: event.Payload.Product, Watched: 1, Bought: 0})
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-		}
+	mw := MongoWriter{
+		CollectionName: collectionName,
+		Filter:         filter,
+		Update:         update,
+		Insert:         insert,
 	}
+	mw.write()
+
 }
 
 func increaseProductBought(event *Event) {
-
-	dbClient := mongoClient()
 	collectionName := "products"
-	collection := dbClient(collectionName)
 
 	filter := bson.M{"name": event.Payload.Product}
 	update := bson.M{
 		"$inc": bson.M{"bought": 1},
 	}
+	insert := struct {
+		Name    string `json:"name"`
+		Watched int64  `json:"watched"`
+		Bought  int64  `json:"bought"`
+	}{Name: event.Payload.Product, Watched: 0, Bought: 1}
 
-	var updatedDocument bson.M
-	err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			fmt.Println(err)
-			_, err = collection.InsertOne(context.Background(), struct {
-				Name    string `json:"name"`
-				Watched int64  `json:"watched"`
-				Bought  int64  `json:"bought"`
-			}{Name: event.Payload.Product, Watched: 0, Bought: 1})
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-		}
+	mw := MongoWriter{
+		CollectionName: collectionName,
+		Filter:         filter,
+		Update:         update,
+		Insert:         insert,
 	}
-
+	mw.write()
 }
 
 func increaseCustomerProduct(event *Event) {
-	dbClient := mongoClient()
 	collectionName := "customers"
-	collection := dbClient(collectionName)
-
 	filter := bson.M{"name": event.Payload.Customer}
 	update := bson.M{
 		"$inc": bson.M{"products": 1},
 	}
+	insert := struct {
+		Name     string `json:"name"`
+		Products int64  `json:"products"`
+	}{Name: event.Payload.Customer, Products: 1}
+
+	mw := MongoWriter{
+		CollectionName: collectionName,
+		Filter:         filter,
+		Update:         update,
+		Insert:         insert,
+	}
+	mw.write()
+}
+
+func (mw *MongoWriter) write() {
+
+	dbClient := mongoClient()
+
+	collection := dbClient(mw.CollectionName)
 
 	var updatedDocument bson.M
-	err := collection.FindOneAndUpdate(context.Background(), filter, update).Decode(&updatedDocument)
+	err := collection.FindOneAndUpdate(context.Background(), mw.Filter, mw.Update).Decode(&updatedDocument)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			fmt.Println(err)
-			_, err = collection.InsertOne(context.Background(), struct {
-				Name     string `json:"name"`
-				Products int64  `json:"products"`
-			}{Name: event.Payload.Customer, Products: 1})
+			_, err = collection.InsertOne(context.Background(), mw.Insert)
 			if err != nil {
 				fmt.Println(err)
 				return
@@ -163,7 +168,6 @@ func increaseCustomerProduct(event *Event) {
 		}
 	}
 }
-
 func mongoClient() func(collectionName string) *mongo.Collection {
 	uri, ok := os.LookupEnv("ENTITY_STORE")
 	if !ok {
