@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc"
 	"net"
-	//"github.com/golang/protobuf/proto"
+	// "github.com/golang/protobuf/proto"
 	"log"
 	"os"
 )
@@ -41,54 +41,54 @@ func newServer() *InspectorServer {
 	return s
 }
 
-func (i *InspectorServer) InspectProduct(ctx context.Context, _ *schema.Empty) (*schema.ProductMany, error) {
+func (i *InspectorServer) InspectProduct(_ *schema.Empty, stream schema.Inspector_InspectProductServer) error {
 	dbClient := mongoClient()
 	collectionName := "products"
 	collection := dbClient(collectionName)
-	cursor, err := collection.Find(ctx, bson.D{})
+	cursor, err := collection.Find(context.Background(), bson.D{})
 	if err != nil {
 		fmt.Println("Error", err)
-		return nil, err
+		return err
 	}
-	defer cursor.Close(ctx)
+	defer cursor.Close(context.Background())
 
-	resp := schema.ProductMany{}
-	for cursor.Next(ctx) {
+	for cursor.Next(context.Background()) {
 		var decoded schema.Product
 		err := cursor.Decode(&decoded)
 		if err != nil {
 			fmt.Println("Error", err)
-			return nil, err
+			return err
 		}
-		resp.ProductMany = append(resp.ProductMany, &decoded)
+		if err := stream.Send(&decoded); err != nil {
+			return err
+		}
 	}
-	return &resp, nil
+	return nil
 }
 
-func (i *InspectorServer) InspectCustomer(ctx context.Context, req *schema.Empty) (*schema.CustomerMany, error) {
+func (i *InspectorServer) InspectCustomer(_ *schema.Empty, stream schema.Inspector_InspectCustomerServer) error {
 	dbClient := mongoClient()
 	collectionName := "customers"
 	collection := dbClient(collectionName)
-	cursor, err := collection.Find(ctx, bson.D{})
+	cursor, err := collection.Find(context.Background(), bson.D{})
 	if err != nil {
 		fmt.Println("Error", err)
-		return nil, err
+		return err
 	}
-	defer cursor.Close(ctx)
-	resp := schema.CustomerMany{}
+	defer cursor.Close(context.Background())
 
-	for cursor.Next(ctx) {
-
+	for cursor.Next(context.Background()) {
 		var decoded schema.Customer
-
-		err := cursor.Decode(&decoded)
-		if err != nil {
+		if err := cursor.Decode(&decoded); err != nil {
 			fmt.Println("Error", err)
-			return nil, err
+			return err
 		}
-		resp.CustomerMany = append(resp.CustomerMany, &decoded)
+		if err := stream.Send(&decoded); err != nil {
+			fmt.Println("Error", err)
+			return err
+		}
 	}
-	return &resp, nil
+	return nil
 }
 
 func mongoClient() func(collectionName string) *mongo.Collection {
