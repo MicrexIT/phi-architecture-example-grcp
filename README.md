@@ -7,7 +7,7 @@ For more details, see the article ["Event-Driven Data Collection"][1] which offe
 
 To run this project, we advise to use Docker and Docker Compose.
 It will avoid the trouble of installing all the required dependencies.
-This projects uses Python 3.8, MongoDB, Kafka, and ZooKeeper.
+This projects uses Golang v1.4, MongoDB, Kafka, and ZooKeeper.
 
 ## Quick start
 
