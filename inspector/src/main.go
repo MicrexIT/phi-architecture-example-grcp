@@ -96,13 +96,12 @@ func (i *InspectorServer) InspectProduct(_ *schema.Empty, stream schema.Inspecto
 // }
 func (i *InspectorServer) InspectCustomer(_ *schema.Empty, stream schema.Inspector_InspectCustomerServer) error {
 
-	// 1. Open connection with neo4j
 	fmt.Println("in neo4j client")
-	driver, err := neo4j.NewDriver("bolt://localhost:7687", neo4j.BasicAuth("neo4j", "qwerqwer", ""))
+	driver, err := neo4j.NewDriver("bolt://neo4j:7687", neo4j.BasicAuth("neo4j", "qwerqwer", ""))
 	if err != nil {
 		return err // handle error
 	}
-	// handle driver lifetime based on your application lifetime requirements
+	// handle driver lifetime based on your applicationj lifetime requirements
 	// driver's lifetime is usually bound by the application lifetime, which usually implies one driver instance per application
 	defer driver.Close()
 	fmt.Println("got Driver")
@@ -115,7 +114,7 @@ func (i *InspectorServer) InspectCustomer(_ *schema.Empty, stream schema.Inspect
 
 	defer session.Close()
 	fmt.Println("Got Session")
-	// 2. Request customers nodes and their edges with products
+
 	result, err := session.Run(`MATCH (p:Person)-[b:BOUGHT]-(pp:product) WHERE p.name != "anonymous" RETURN p.name as name , sum(b.items)`,map[string]interface{}{})
 	if err != nil {
 		return err // handle error
@@ -124,14 +123,21 @@ func (i *InspectorServer) InspectCustomer(_ *schema.Empty, stream schema.Inspect
 	fmt.Println("handling next")
 
 	for result.Next() {
-		// split in two: 1 create array with customers
-		// 2. stream through array
+		err = result.Err()
+		if err != nil {
+			return err
+		}
 		fmt.Println("inside record.Next()")
-		customer := &schema.Customer{}
-		// (*customer).Name = result.Record().GetByIndex(0).(string)
-		// (*customer).Products += result.Record().GetByIndex(1).(int64)
-		fmt.Println(*customer)
-		if err := stream.Send(customer); err != nil {
+		record := map[string]interface{}{}
+		for _, key := range result.Record().Keys() {
+			record[key], _ = result.Record().Get(key)
+		}
+
+		customer := schema.Customer{}
+		customer.Name = record["name"].(string)
+		customer.Products = record["products"].(int64)
+		fmt.Println(customer.Products)
+		if err := stream.Send(&customer); err != nil {
 			fmt.Println("Error", err)
 			return err
 		}
