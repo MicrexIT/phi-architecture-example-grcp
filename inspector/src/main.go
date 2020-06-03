@@ -46,7 +46,7 @@ func newServer() *InspectorServer {
 func (i *InspectorServer) InspectProduct(_ *schema.Empty, stream schema.Inspector_InspectProductServer) error {
 	inspect := func(session neo4j.Session ) error {
 		var err error
-		result, err := session.Run(`MATCH (p:Person)-[b:BOUGHT]-(pp:Product) WHERE NOT p.name = "anonymous" RETURN p.name as name , sum(b.items) as products`, map[string]interface{}{})
+		result, err := session.Run(`MATCH (:Person)-[b:BOUGHT|:WATCHED]->(pp:Product) RETURN pp.name as name , sum(b.items) as bought, count(b) - count(b.items)  as watched`, map[string]interface{}{})
 		if err != nil {
 			return err // handle error
 		}
@@ -90,7 +90,6 @@ func (i *InspectorServer) InspectCustomer(_ *schema.Empty, stream schema.Inspect
 			record := map[string]interface{}{}
 			for _, key := range result.Record().Keys() {
 				record[key], _ = result.Record().Get(key)
-				fmt.Println(record[key])
 			}
 			customer := schema.Customer{}
 			customer.Name = record["name"].(string)
