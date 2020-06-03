@@ -7,7 +7,6 @@ import (
 	"net"
 
 	schema "github.com/micrexIT/phi-architecture-example-protobuf"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc"
@@ -45,105 +44,82 @@ func newServer() *InspectorServer {
 }
 
 func (i *InspectorServer) InspectProduct(_ *schema.Empty, stream schema.Inspector_InspectProductServer) error {
-	dbClient := mongoClient()
-	collectionName := "products"
-	collection := dbClient(collectionName)
-	cursor, err := collection.Find(context.Background(), bson.D{})
-	if err != nil {
-		fmt.Println("Error", err)
-		return err
-	}
-	defer cursor.Close(context.Background())
-
-	for cursor.Next(context.Background()) {
-		var decoded schema.Product
-		err := cursor.Decode(&decoded)
+	inspect := func(session neo4j.Session ) error {
+		var err error
+		result, err := session.Run(`MATCH (p:Person)-[b:BOUGHT]-(pp:Product) WHERE NOT p.name = "anonymous" RETURN p.name as name , sum(b.items) as products`, map[string]interface{}{})
 		if err != nil {
-			fmt.Println("Error", err)
-			return err
+			return err // handle error
 		}
-		if err := stream.Send(&decoded); err != nil {
-			return err
+		for result.Next() {
+			err = result.Err()
+			if err != nil {
+				return err
+			}
+			record := map[string]interface{}{}
+			for _, key := range result.Record().Keys() {
+				record[key], _ = result.Record().Get(key)
+				fmt.Println(record[key])
+			}
+			product := schema.Product{}
+			product.Name = record["name"].(string)
+			product.Bought = record["bought"].(int64)
+			product.Watched = record["watched"].(int64)
+			if err := stream.Send(&product); err != nil {
+				fmt.Println("Error", err)
+				return err
+			}
 		}
+		return nil
 	}
-	return nil
+	return Neo4jClient(inspect)
+
 }
 
-//
-// func (i *InspectorServer) InspectCustomer(_ *schema.Empty, stream schema.Inspector_InspectCustomerServer) error {
-// 	dbClient := mongoClient()
-// 	collectionName := "customers"
-// 	collection := dbClient(collectionName)
-// 	cursor, err := collection.Find(context.Background(), bson.D{})
-// 	if err != nil {
-// 		fmt.Println("Error", err)
-// 		return err
-// 	}
-// 	defer cursor.Close(context.Background())
-//
-// 	for cursor.Next(context.Background()) {
-// 		var decoded schema.Customer
-// 		if err := cursor.Decode(&decoded); err != nil {
-// 			fmt.Println("Error", err)
-// 			return err
-// 		}
-// 		if err := stream.Send(&decoded); err != nil {
-// 			fmt.Println("Error", err)
-// 			return err
-// 		}
-// 	}
-// 	return nil
-// }
 func (i *InspectorServer) InspectCustomer(_ *schema.Empty, stream schema.Inspector_InspectCustomerServer) error {
+	inspect := func(session neo4j.Session ) error {
+		var err error
+		result, err := session.Run(`MATCH (p:Person)-[b:BOUGHT]-(pp:Product) WHERE NOT p.name = "anonymous" RETURN p.name as name , sum(b.items) as products`, map[string]interface{}{})
+		if err != nil {
+			return err // handle error
+		}
+		for result.Next() {
+			err = result.Err()
+			if err != nil {
+				return err
+			}
+			record := map[string]interface{}{}
+			for _, key := range result.Record().Keys() {
+				record[key], _ = result.Record().Get(key)
+				fmt.Println(record[key])
+			}
+			customer := schema.Customer{}
+			customer.Name = record["name"].(string)
+			customer.Products = record["products"].(int64)
+			if err := stream.Send(&customer); err != nil {
+				fmt.Println("Error", err)
+				return err
+			}
+		}
+		return nil
+	}
+    return Neo4jClient(inspect)
 
-	fmt.Println("in neo4j client")
+}
+
+
+func Neo4jClient(foo func (session neo4j.Session) error) error {
 	driver, err := neo4j.NewDriver("bolt://neo4j:7687", neo4j.BasicAuth("neo4j", "qwerqwer", ""))
 	if err != nil {
 		return err // handle error
 	}
-	// handle driver lifetime based on your applicationj lifetime requirements
-	// driver's lifetime is usually bound by the application lifetime, which usually implies one driver instance per application
 	defer driver.Close()
-	fmt.Println("got Driver")
-
 
 	session, err := driver.Session(neo4j.AccessModeRead)
 	if err != nil {
 		return err
 	}
-
 	defer session.Close()
-	fmt.Println("Got Session")
-
-	result, err := session.Run(`MATCH (p:Person)-[b:BOUGHT]-(pp:product) WHERE p.name != "anonymous" RETURN p.name as name , sum(b.items)`,map[string]interface{}{})
-	if err != nil {
-		return err // handle error
-	}
-
-	fmt.Println("handling next")
-
-	for result.Next() {
-		err = result.Err()
-		if err != nil {
-			return err
-		}
-		fmt.Println("inside record.Next()")
-		record := map[string]interface{}{}
-		for _, key := range result.Record().Keys() {
-			record[key], _ = result.Record().Get(key)
-		}
-
-		customer := schema.Customer{}
-		customer.Name = record["name"].(string)
-		customer.Products = record["products"].(int64)
-		fmt.Println(customer.Products)
-		if err := stream.Send(&customer); err != nil {
-			fmt.Println("Error", err)
-			return err
-		}
-
-	}
-	return nil
+	return foo(session)
 }
 
 func mongoClient() func(collectionName string) *mongo.Collection {
