@@ -2645,3 +2645,16 @@ return v.name as person_name, p.name as product_name
 2020-06-03 14:44:39.857+0000 INFO [o.n.k.i.t.l.p.LogPruningImpl] No log version pruned, last checkpoint was made in version 0
 2020-06-03 14:45:59.804+0000 WARN [o.n.k.i.c.VmPauseMonitorComponent] Detected VM stop-the-world pause: {pauseTime=405, gcTime=0, gcCount=0}
 2020-06-03 14:46:05.234+0000 INFO [o.n.c.i.ExecutionEngine] Discarded stale query from the query cache after 13946 seconds: MATCH (a)-[r]->(b) WHERE id(a) IN $existingNodeIds AND id(b) IN $newNodeIds RETURN r;
+2020-06-03 14:59:38.896+0000 INFO [o.n.k.i.t.l.c.CheckPointerImpl] Checkpoint triggered by "Scheduled checkpoint for time threshold" @ txId: 15 checkpoint started...
+2020-06-03 14:59:38.922+0000 INFO [o.n.k.i.s.c.CountsTracker] Rotated counts store at transaction 15 to [/data/databases/graph.db/neostore.counts.db.b], from [/data/databases/graph.db/neostore.counts.db.a].
+2020-06-03 14:59:38.929+0000 INFO [o.n.k.i.t.l.c.CheckPointerImpl] Checkpoint triggered by "Scheduled checkpoint for time threshold" @ txId: 15 checkpoint completed in 32ms
+2020-06-03 14:59:38.930+0000 INFO [o.n.k.i.t.l.p.LogPruningImpl] No log version pruned, last checkpoint was made in version 0
+2020-06-03 15:10:06.743+0000 INFO [o.n.c.i.ExecutionEngine] Discarded stale query from the query cache after 15365 seconds: EXPLAIN MATCH (p:Person)--(pp:PRODUCT)
+RETURN p, pp
+2020-06-03 15:10:07.841+0000 INFO [o.n.c.i.ExecutionEngine] Discarded stale query from the query cache after 15349 seconds: EXPLAIN MATCH (p:PERSON)--(pp:PRODUCT)
+RETURN p, pp
+2020-06-03 15:10:08.812+0000 INFO [o.n.c.i.ExecutionEngine] Discarded stale query from the query cache after 15393 seconds: EXPLAIN MATCH (p:Person)
+RETURN p
+2020-06-03 15:10:20.852+0000 INFO [o.n.c.i.ExecutionEngine] Discarded stale query from the query cache after 15906 seconds: EXPLAIN MATCH (:Person)-[b:BOUGHT|:WATCHED]->(pp:Product) RETURN pp.name as name , sum(b.items), count(b) - count(b.items)  as products
+2020-06-03 15:10:21.785+0000 INFO [o.n.c.i.ExecutionEngine] Discarded stale query from the query cache after 15972 seconds: EXPLAIN MATCH (:Person)-[b:BOUGHT|:WATCHED]->(pp:Product) RETURN pp.name as name , sum(b.items), count(b)  as products
+2020-06-03 15:10:24.760+0000 INFO [o.n.c.i.ExecutionEngine] Discarded stale query from the query cache after 16124 seconds: EXPLAIN MATCH (p:Person)-[b:BOUGHT]->(pp:Product) RETURN p.name as name , sum(b.items) as products
