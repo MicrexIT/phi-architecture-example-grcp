@@ -34,6 +34,9 @@ services:
     build: ./handler
     restart: always
     environment:
+      - NEO4J=neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=qwerqwer
       - EVENT_STORE=event-store:29092
       - TOPIC=events
       - ENTITY_STORE=entity-store:27017
@@ -45,6 +48,9 @@ services:
     build: ./inspector
     restart: always
     environment:
+      - NEO4J=neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=qwerqwer
       - ENTITY_STORE=entity-store:27017
       - DATABASE=entities
     ports:

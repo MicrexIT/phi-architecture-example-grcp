@@ -158,9 +158,9 @@ func environmentVariables() (eventStore string, topic string, boltUrl string, us
 		username = "neo4j"
 	}
 
-	password, ok = os.LookupEnv("NEO4j_USERNAME")
+	password, ok = os.LookupEnv("NEO4j_PASSWORD")
 	if !ok {
-		username = "neo4j"
+		username = "qwerqwer"
 	}
 
 	return
