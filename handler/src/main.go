@@ -4,10 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/MicrexIT/neo4j-driver-client"
+	_ "github.com/micrexIT/phi-architecture-example-protobuf"
 	"github.com/segmentio/kafka-go"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
 	"os"
 )
@@ -24,13 +23,6 @@ type Payload struct {
 	Visitor  string `json:"visitor"`
 }
 
-type MongoWriter struct {
-	CollectionName string
-	Filter         bson.M
-	Update         bson.M
-	Insert         interface{}
-}
-
 func main() {
 	reader := kafkaReader()
 	defer reader.Close()
@@ -44,21 +36,15 @@ func main() {
 
 		fmt.Println("start Reading msg ...")
 		fmt.Print(string(msg.Value))
-		HandleMessage(&msg)
+		if err := HandleMessage(&msg); err != nil {
+			fmt.Println("error handling message")
+		}
 	}
 
 }
 
 func kafkaReader() *kafka.Reader {
-	eventStore, ok := os.LookupEnv("EVENT_STORE")
-	if !ok {
-		eventStore = "localhost:9092"
-	}
-
-	topic, ok := os.LookupEnv("TOPIC")
-	if !ok {
-		topic = "events"
-	}
+	eventStore, topic, _, _, _ := environmentVariables()
 
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:  []string{eventStore},
@@ -70,123 +56,75 @@ func kafkaReader() *kafka.Reader {
 	return r
 }
 
-func HandleMessage(m *kafka.Message) {
+func HandleMessage(m *kafka.Message) error {
 	event := decodeMsg(m)
 	switch event.Name {
 	case "product_bought":
-		increaseProductBought(event) //split in two: more meaningful; updateCust + updateProduct
-		increaseCustomerProduct(event)
+		return productBought(event) // split in two: more meaningful; updateCust + updateProduct
 	case "product_watched":
-		increaseProductWatched(event)
+		return productWatched(event)
 	default:
 		fmt.Println("Unknown event: \n")
 		fmt.Printf("%v", *event)
+		return nil
 	}
 }
 
-func increaseProductWatched(event *Event) {
-	collectionName := "products"
-	insert := struct {
-		Name    string `json:"name"`
-		Watched int64  `json:"watched"`
-		Bought  int64  `json:"bought"`
-	}{Name: event.Payload.Product, Watched: 1, Bought: 0}
-	filter := bson.M{"name": event.Payload.Product}
-
-	update := bson.M{
-		"$inc": bson.M{"watched": 1},
+func productWatched(event *Event) error {
+	_, _, boltUrl, username, password := environmentVariables()
+	customer := event.Payload.Customer
+	if customer == "" {
+		customer = "anonymous"
 	}
 
-	mw := MongoWriter{
-		CollectionName: collectionName,
-		Filter:         filter,
-		Update:         update,
-		Insert:         insert,
-	}
-	mw.write()
+	query := fmt.Sprintf(`
+			MERGE (p: Person {name: "%s"})
+			MERGE (pt:Product {name: "%s"})
+			CREATE (p)-[:WATCHED]->(pt)
+			RETURN p.name as customer, pt.name as product`, customer, event.Payload.Product)
 
+	job := func(record neo4j.Record) error {
+		return nil
+	}
+
+	client := neo4j.NewClient(
+		boltUrl,
+		username,
+		password,
+	)
+
+	return client.Write(query, job)
 }
 
-func increaseProductBought(event *Event) {
-	collectionName := "products"
-
-	filter := bson.M{"name": event.Payload.Product}
-	update := bson.M{
-		"$inc": bson.M{"bought": 1},
-	}
-	insert := struct {
-		Name    string `json:"name"`
-		Watched int64  `json:"watched"`
-		Bought  int64  `json:"bought"`
-	}{Name: event.Payload.Product, Watched: 0, Bought: 1}
-
-	mw := MongoWriter{
-		CollectionName: collectionName,
-		Filter:         filter,
-		Update:         update,
-		Insert:         insert,
-	}
-	mw.write()
-}
-
-func increaseCustomerProduct(event *Event) {
-	collectionName := "customers"
-	filter := bson.M{"name": event.Payload.Customer}
-	update := bson.M{
-		"$inc": bson.M{"products": 1},
-	}
-	insert := struct {
-		Name     string `json:"name"`
-		Products int64  `json:"products"`
-	}{Name: event.Payload.Customer, Products: 1}
-
-	mw := MongoWriter{
-		CollectionName: collectionName,
-		Filter:         filter,
-		Update:         update,
-		Insert:         insert,
-	}
-	mw.write()
-}
-
-func (mw *MongoWriter) write() {
-
-	dbClient := mongoClient()
-	collection := dbClient(mw.CollectionName)
-
-	var updatedDocument bson.M
-	err := collection.FindOneAndUpdate(context.Background(), mw.Filter, mw.Update).Decode(&updatedDocument)
-	if err == nil {return}
-	if err == mongo.ErrNoDocuments {
-			fmt.Println(err)
-			_, err = collection.InsertOne(context.Background(), mw.Insert)
-	}
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-func mongoClient() func(collectionName string) *mongo.Collection {
-	uri, ok := os.LookupEnv("ENTITY_STORE")
-	if !ok {
-		// default val
-		uri = "localhost:27017"
-	}
-	database, ok := os.LookupEnv("DATABASE")
-	if !ok {
-		// default val
-		database = "entities"
+func productBought(event *Event) error {
+	_, _, boltUrl, username, password := environmentVariables()
+	customer := event.Payload.Customer
+	if customer == "" {
+		customer = "anonymous"
 	}
 
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://"+uri))
+	query := fmt.Sprintf(`
+		MERGE (p: Person {name: "%s"})
+		MERGE (pt:Product {name: "%s"})
+		MERGE (p)-[b:BOUGHT]->(pt) 
+		ON MATCH SET b.items = b.items + 1 
+		ON CREATE SET b.items = 1
+		RETURN p.name as customer , pt.name as product, b.items as bought `,
+		customer,
+		event.Payload.Product,
+	)
 
-	if err != nil {
-		log.Fatal(err)
+	job := func(record neo4j.Record) error {
+		return nil
 	}
 
-	return func(collectionName string) *mongo.Collection {
-		return client.Database(database).Collection(collectionName)
-	}
+	client := neo4j.NewClient(
+		boltUrl,
+		username,
+		password,
+	)
+
+	return client.Write(query, job)
 }
 
 func decodeMsg(m *kafka.Message) *Event {
@@ -195,5 +133,36 @@ func decodeMsg(m *kafka.Message) *Event {
 	if err != nil {
 		log.Fatalln(err)
 	}
+
 	return &event
+}
+
+func environmentVariables() (eventStore string, topic string, boltUrl string, username string, password string) {
+	eventStore, ok := os.LookupEnv("EVENT_STORE")
+	if !ok {
+		eventStore = "localhost:9092"
+	}
+
+	topic, ok = os.LookupEnv("TOPIC")
+	if !ok {
+		topic = "events"
+	}
+
+	boltUrl, ok = os.LookupEnv("NEO4J")
+	if !ok {
+		boltUrl = "neo4j:7687"
+	}
+
+	username, ok = os.LookupEnv("NEO4j_USERNAME")
+	if !ok {
+		username = "neo4j"
+	}
+
+	password, ok = os.LookupEnv("NEO4j_PASSWORD")
+	if !ok {
+		username = "qwerqwer"
+	}
+
+	return
+
 }

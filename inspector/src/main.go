@@ -1,17 +1,16 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	schema "github.com/micrexIT/phi-architecture-example-protobuf"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"google.golang.org/grpc"
 	"net"
-	// "github.com/golang/protobuf/proto"
-	"log"
 	"os"
+
+	neo4j "github.com/MicrexIT/neo4j-driver-client"
+
+	schema "github.com/MicrexIT/phi-architecture-example-protobuf"
+	"google.golang.org/grpc"
+
+	"log"
 )
 
 type InspectorServer struct {
@@ -33,7 +32,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to serve grpc: %v", err)
 	}
-
 }
 
 func newServer() *InspectorServer {
@@ -42,73 +40,70 @@ func newServer() *InspectorServer {
 }
 
 func (i *InspectorServer) InspectProduct(_ *schema.Empty, stream schema.Inspector_InspectProductServer) error {
-	dbClient := mongoClient()
-	collectionName := "products"
-	collection := dbClient(collectionName)
-	cursor, err := collection.Find(context.Background(), bson.D{})
-	if err != nil {
-		fmt.Println("Error", err)
-		return err
-	}
-	defer cursor.Close(context.Background())
+	query := `MATCH (:Person)-[b:BOUGHT|:WATCHED]->(pp:Product) RETURN pp.name as name , sum(b.items) as bought, count(b) - count(b.items)  as watched`
+	inspect := func(record neo4j.Record) error {
+		product := schema.Product{}
+		product.Name = record["name"].(string)
+		product.Bought = record["bought"].(int64)
+		product.Watched = record["watched"].(int64)
 
-	for cursor.Next(context.Background()) {
-		var decoded schema.Product
-		err := cursor.Decode(&decoded)
-		if err != nil {
+		if err := stream.Send(&product); err != nil {
 			fmt.Println("Error", err)
 			return err
 		}
-		if err := stream.Send(&decoded); err != nil {
-			return err
-		}
+		return nil
 	}
-	return nil
+
+	boltUrl, username, password := environmentVariables()
+	client := neo4j.NewClient(
+		boltUrl,
+		username,
+		password,
+	)
+
+	return client.Read(query, inspect)
+
 }
 
 func (i *InspectorServer) InspectCustomer(_ *schema.Empty, stream schema.Inspector_InspectCustomerServer) error {
-	dbClient := mongoClient()
-	collectionName := "customers"
-	collection := dbClient(collectionName)
-	cursor, err := collection.Find(context.Background(), bson.D{})
-	if err != nil {
-		fmt.Println("Error", err)
-		return err
+	query := `MATCH (p:Person)-[b:BOUGHT]->(pp:Product) RETURN p.name as name , sum(b.items) as products`
+	inspect := func(record neo4j.Record) error {
+		customer := schema.Customer{}
+		customer.Name = record["name"].(string)
+		customer.Products = record["products"].(int64)
+		if err := stream.Send(&customer); err != nil {
+			fmt.Println("Error", err)
+			return err
+		}
+		return nil
 	}
-	defer cursor.Close(context.Background())
 
-	for cursor.Next(context.Background()) {
-		var decoded schema.Customer
-		if err := cursor.Decode(&decoded); err != nil {
-			fmt.Println("Error", err)
-			return err
-		}
-		if err := stream.Send(&decoded); err != nil {
-			fmt.Println("Error", err)
-			return err
-		}
-	}
-	return nil
+	boltUrl, username, password := environmentVariables()
+	client := neo4j.NewClient(
+		boltUrl,
+		username,
+		password,
+	)
+
+	return client.Read(query, inspect)
 }
 
-func mongoClient() func(collectionName string) *mongo.Collection {
-
-	uri, ok := os.LookupEnv("ENTITY_STORE")
+func environmentVariables() ( boltUrl string, username string, password string) {
+	boltUrl, ok := os.LookupEnv("NEO4J")
 	if !ok {
-		uri = "localhost:27017"
+		boltUrl = "neo4j:7687"
 	}
-	database, ok := os.LookupEnv("DATABASE")
+
+	username, ok = os.LookupEnv("NEO4j_USERNAME")
 	if !ok {
-		database = "entities"
+		username = "neo4j"
 	}
 
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://"+uri))
-
-	if err != nil {
-		log.Fatal(err)
+	password, ok = os.LookupEnv("NEO4j_PASSWORD")
+	if !ok {
+		password = "qwerqwer"
 	}
 
-	return func(collectionName string) *mongo.Collection {
-		return client.Database(database).Collection(collectionName)
-	}
+	return
+
 }
