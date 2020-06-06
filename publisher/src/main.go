@@ -116,7 +116,7 @@ func pushMessage(ctx context.Context, msg *kafka.Message) error {
 func getKafkaWriter() *kafka.Writer {
 	eventStore, ok := os.LookupEnv("EVENT_STORE")
 	if !ok {
-		eventStore = "localhost:9092"
+		eventStore = "event-store:9092"
 	}
 
 	topic, ok := os.LookupEnv("TOPIC")

@@ -72,16 +72,18 @@ func HandleMessage(m *kafka.Message) error {
 
 func productWatched(event *Event) error {
 	_, _, boltUrl, username, password := environmentVariables()
-	customer := event.Payload.Customer
-	if customer == "" {
-		customer = "anonymous"
+
+
+	visitor := event.Payload.Visitor
+	if visitor == "" {
+		visitor = "anonymous"
 	}
 
 	query := fmt.Sprintf(`
 			MERGE (p: Person {name: "%s"})
 			MERGE (pt:Product {name: "%s"})
 			CREATE (p)-[:WATCHED]->(pt)
-			RETURN p.name as customer, pt.name as product`, customer, event.Payload.Product)
+			RETURN p.name as visitor, pt.name as product`, visitor, event.Payload.Product)
 
 	job := func(record neo4j.Record) error {
 		return nil
@@ -98,6 +100,7 @@ func productWatched(event *Event) error {
 
 func productBought(event *Event) error {
 	_, _, boltUrl, username, password := environmentVariables()
+
 	customer := event.Payload.Customer
 	if customer == "" {
 		customer = "anonymous"
@@ -140,7 +143,7 @@ func decodeMsg(m *kafka.Message) *Event {
 func environmentVariables() (eventStore string, topic string, boltUrl string, username string, password string) {
 	eventStore, ok := os.LookupEnv("EVENT_STORE")
 	if !ok {
-		eventStore = "localhost:9092"
+		eventStore = "event-store:9092"
 	}
 
 	topic, ok = os.LookupEnv("TOPIC")
@@ -148,17 +151,17 @@ func environmentVariables() (eventStore string, topic string, boltUrl string, us
 		topic = "events"
 	}
 
-	boltUrl, ok = os.LookupEnv("NEO4J")
+	boltUrl, ok = os.LookupEnv("ENTITY_STORE")
 	if !ok {
-		boltUrl = "neo4j:7687"
+		boltUrl = "entity-store:7687"
 	}
 
-	username, ok = os.LookupEnv("NEO4j_USERNAME")
+	username, ok = os.LookupEnv("ENTITY_STORE_USERNAME")
 	if !ok {
 		username = "neo4j"
 	}
 
-	password, ok = os.LookupEnv("NEO4j_PASSWORD")
+	password, ok = os.LookupEnv("ENTITY_STORE_PASSWORD")
 	if !ok {
 		username = "qwerqwer"
 	}

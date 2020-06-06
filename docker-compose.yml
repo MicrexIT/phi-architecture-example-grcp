@@ -1,6 +1,6 @@
 version: '3.1'
 services:
-  neo4j:
+  entity-store:
     image: neo4j:3.5
     restart: unless-stopped
     ports:
@@ -17,9 +17,9 @@ services:
       - NEO4J_dbms_memory_pagecache_size=1G
       - NEO4J_dbms.memory.heap.initial_size=1G
       - NEO4J_dbms_memory_heap_max__size=1G
-#      - NEO4J_dbms_connector_bolt_tls__level=OPTIONAL
-#      - NEO4J_dbms_ssl_policy_bolt_client__auth=NONE
-#      - NEO4J_dbms_ssl_policy_https_client__auth=NONE
+  #      - NEO4J_dbms_connector_bolt_tls__level=OPTIONAL
+  #      - NEO4J_dbms_ssl_policy_bolt_client__auth=NONE
+  #      - NEO4J_dbms_ssl_policy_https_client__auth=NONE
   publisher:
     build: ./publisher
     restart: always
@@ -34,13 +34,11 @@ services:
     build: ./handler
     restart: always
     environment:
-      - NEO4J=neo4j:7687
-      - NEO4J_USERNAME=neo4j
-      - NEO4J_PASSWORD=qwerqwer
+      - ENTITY_STORE=entity-store:7687
+      - ENTITY_STORE_USERNAME=neo4j
+      - ENTITY_STORE_PASSWORD=qwerqwer
       - EVENT_STORE=event-store:29092
       - TOPIC=events
-      - ENTITY_STORE=entity-store:27017
-      - DATABASE=entities
     depends_on:
       - event-store
       - entity-store
@@ -48,22 +46,13 @@ services:
     build: ./inspector
     restart: always
     environment:
-      - NEO4J=neo4j:7687
-      - NEO4J_USERNAME=neo4j
-      - NEO4J_PASSWORD=qwerqwer
-      - ENTITY_STORE=entity-store:27017
-      - DATABASE=entities
+      - ENTITY_STORE=entity-store:7687
+      - ENTITY_STORE_USERNAME=neo4j
+      - ENTITY_STORE_PASSWORD=qwerqwer
     ports:
       - '50051:50051'
     depends_on:
       - entity-store
-  entity-store:
-    image: mongo:4.2.5
-    restart: always
-    volumes:
-      - './data/db:/data/db'
-    ports:
-      - '27017:27017'
   event-store:
     image: confluentinc/cp-kafka:5.4.1
     restart: always

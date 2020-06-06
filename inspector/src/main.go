@@ -5,7 +5,7 @@ import (
 	"net"
 	"os"
 
-	neo4j "github.com/MicrexIT/neo4j-driver-client"
+	"github.com/MicrexIT/neo4j-driver-client"
 
 	schema "github.com/MicrexIT/phi-architecture-example-protobuf"
 	"google.golang.org/grpc"
@@ -89,17 +89,17 @@ func (i *InspectorServer) InspectCustomer(_ *schema.Empty, stream schema.Inspect
 }
 
 func environmentVariables() ( boltUrl string, username string, password string) {
-	boltUrl, ok := os.LookupEnv("NEO4J")
+	boltUrl, ok := os.LookupEnv("ENTITY_STORE")
 	if !ok {
-		boltUrl = "neo4j:7687"
+		boltUrl = "entity-store:7687"
 	}
 
-	username, ok = os.LookupEnv("NEO4j_USERNAME")
+	username, ok = os.LookupEnv("ENTITY_STORE_USERNAME")
 	if !ok {
 		username = "neo4j"
 	}
 
-	password, ok = os.LookupEnv("NEO4j_PASSWORD")
+	password, ok = os.LookupEnv("ENTITY_STORE_PASSWORD")
 	if !ok {
 		password = "qwerqwer"
 	}
