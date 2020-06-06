@@ -1,6 +1,7 @@
 data/*
 !data/.gitkeep
 .idea
+.vscode
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Vim template

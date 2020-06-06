@@ -24,10 +24,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
+
 	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
 	schema.RegisterInspectorServer(grpcServer, newServer())
-	fmt.Println("serving grcp")
 	err = grpcServer.Serve(lis)
 	if err != nil {
 		log.Fatalf("failed to serve grpc: %v", err)
