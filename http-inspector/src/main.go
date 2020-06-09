@@ -29,7 +29,7 @@ type Product struct {
 // Movie is a movie
 type Movie struct {
 	Released int      `json:"released"`
-	Title    string   `json:"title,omitempty"`
+	Id    string   `json:"Id,omitempty"`
 	Tagline  string   `json:"tagline,omitempty"`
 	Cast     []Person `json:"cast,omitempty"`
 }
@@ -41,22 +41,28 @@ type Person struct {
 	Name string   `json:"name"`
 }
 
-// D3Response is the graph response
-type D3Response struct {
+// GraphResponse is the graph response
+// TODO: RENAME
+type GraphResponse struct {
 	Nodes []Node `json:"nodes"`
-	Links []Link `json:"links"`
+	//TODO: RENAME EDGES
+	Edges []Edge `json:"edges"`
 }
 
 // Node is the graph response node
 type Node struct {
-	Title string `json:"title"`
+	Id string `json:"id"`
 	Label string `json:"label"`
 }
 
 // Link is the graph response link
-type Link struct {
+type Edge struct {
 	Source int `json:"source"`
 	Target int `json:"target"`
+	Meta interface{} `json:"meta"`
+	Id int `json:"id"`
+	// TODO:add label
+	// TODO: add id as an index
 }
 
 func main() {
@@ -69,9 +75,6 @@ func main() {
 	r.Use(CORSMiddleware())
 	r.Use(gin.Logger())
 	r.GET("/graph", func(c *gin.Context) {
-		query := `
-			MATCH (p:Product)<-[:BOUGHT|:WATCHED]-(c:Person)
-			RETURN p.name as product, collect(c.name) as customers`
 
 		url, username, password := environmentVariables()
 		client := neo4j.NewClient(
@@ -80,53 +83,31 @@ func main() {
 			password,
 		)
 
-		// customer := Customer{}
 		product := Product{}
-		customers := []string{}
+		customer := Customer{}
+		graphResp := GraphResponse{}
 
-		d3Resp := D3Response{}
+		query := `
+			MATCH (p:Product)<-[w]-(c:Person)
+			RETURN p.name as product, c.name as customer, w as meta`
 		job := func(record neo4j.Record) error {
-			// customer.Name = record["name"].(string)
-			// customer.Name = record["name"].(string)
-			// customer.Name = record["name"].(string)
 			product.Name = record["product"].(string)
-			customers = interfaceSliceToString(record["customers"].([]interface{}))
-
-			d3Resp.Nodes = append(d3Resp.Nodes, Node{Title: product.Name, Label: "product"})
-
-			productIndex := len(d3Resp.Nodes) - 1
-
-			// TODO: REFACTOR
-			for _, customer := range customers {
-				customerIndex := -1
-				for i, node := range d3Resp.Nodes {
-					if customer == node.Title && node.Label == "customer" {
-						customerIndex = i
-						break
-					}
-				}
-				if customerIndex == -1 {
-					d3Resp.Nodes = append(d3Resp.Nodes, Node{Title: customer, Label: "customer"})
-					d3Resp.Links = append(d3Resp.Links, Link{Source: len(d3Resp.Nodes) - 1, Target: productIndex})
-				} else {
-					d3Resp.Links = append(d3Resp.Links, Link{Source: customerIndex, Target: productIndex})
-
-				}
-			}
-			fmt.Println("sending d3resp:")
-			fmt.Println(d3Resp)
+			customer.Name = record["customer"].(string)
+            productIndex := graphResp.findOrCreateNode(product.Name, "product")
+			customerIndex := graphResp.findOrCreateNode(customer.Name, "customer")
+			graphResp.Edges = append(graphResp.Edges, Edge{Source: customerIndex, Target: productIndex, Meta: record["meta"], Id: len(graphResp.Nodes) -1})
+			fmt.Println("sending graphResp:")
+			fmt.Println(graphResp)
 
 			return nil
-
 		}
 
 		err := client.Read(query, job)
-
-		c.JSON(200, d3Resp)
+		c.JSON(200, graphResp)
 		if err != nil && err != io.EOF {
 			log.Println("error querying graph:", err)
 			return
-		} else if len(d3Resp.Nodes) == 0 {
+		} else if len(graphResp.Nodes) == 0 {
 			fmt.Println("no nodes")
 			return
 		}
@@ -135,6 +116,24 @@ func main() {
 	r.Run(":8080")
 
 }
+
+func (g GraphResponse) findOrCreateNode(name string, label string) int {
+	targetIndex := -1
+	for i, node := range g.Nodes {
+		if name == node.Id && node.Label == label {
+			targetIndex = i
+			break
+		}
+	}
+
+	if targetIndex == -1 {
+		g.Nodes = append(g.Nodes, Node{Id: name, Label: label})
+		targetIndex = len(g.Nodes) - 1
+	}
+
+	return targetIndex
+}
+
 func interfaceSliceToString(s []interface{}) []string {
 	o := make([]string, len(s))
 	for idx, item := range s {
