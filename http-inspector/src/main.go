@@ -4,65 +4,47 @@ import (
 	"fmt"
 	"github.com/MicrexIT/neo4j-driver-client"
 	"github.com/gin-gonic/gin"
+	neo4jLib "github.com/neo4j/neo4j-go-driver/neo4j"
 	"io"
+	"math/rand"
+
 	// "io/ioutil"
 	"log"
 	"os"
 )
 
-// MovieResult is the result of moves when searching
-type MovieResult struct {
-	Movie `json:"movie"`
-}
-
-// Movie is a movie
+// Customer is a customer of the shop
 type Customer struct {
 	Name     string `json:"name"`
 	Products int64  `json:"products"`
 }
+
 type Product struct {
 	Name    string `json:"name"`
 	Bought  int64  `json:"bought"`
 	Watched int64  `json:"watched"`
 }
 
-// Movie is a movie
-type Movie struct {
-	Released int      `json:"released"`
-	Id    string   `json:"Id,omitempty"`
-	Tagline  string   `json:"tagline,omitempty"`
-	Cast     []Person `json:"cast,omitempty"`
-}
-
-// Person is a person in a movie
-type Person struct {
-	Job  string   `json:"job"`
-	Role []string `json:"role"`
-	Name string   `json:"name"`
-}
-
 // GraphResponse is the graph response
-// TODO: RENAME
 type GraphResponse struct {
 	Nodes []Node `json:"nodes"`
-	//TODO: RENAME EDGES
 	Edges []Edge `json:"edges"`
 }
 
 // Node is the graph response node
 type Node struct {
-	Id string `json:"id"`
+	Title string `json:"title"`
+	Id    int64  `json:"id"`
 	Label string `json:"label"`
 }
 
-// Link is the graph response link
+// Edge is the graph response edge
 type Edge struct {
-	Source int `json:"source"`
-	Target int `json:"target"`
-	Meta interface{} `json:"meta"`
-	Id int `json:"id"`
-	// TODO:add label
-	// TODO: add id as an index
+	Source int64  `json:"source"`
+	Target int64  `json:"target"`
+	Type   string `json:"type"`
+	Items  int64  `json:"items"`
+	Id     int64  `json:"id"`
 }
 
 func main() {
@@ -85,20 +67,22 @@ func main() {
 
 		product := Product{}
 		customer := Customer{}
+
 		graphResp := GraphResponse{}
 
 		query := `
-			MATCH (p:Product)<-[w]-(c:Person)
-			RETURN p.name as product, c.name as customer, w as meta`
+			MATCH (p:Product)<-[e]-(c:Person)
+			RETURN p.name as product, c.name as customer, e as edge`
+
 		job := func(record neo4j.Record) error {
 			product.Name = record["product"].(string)
 			customer.Name = record["customer"].(string)
-            productIndex := graphResp.findOrCreateNode(product.Name, "product")
-			customerIndex := graphResp.findOrCreateNode(customer.Name, "customer")
-			graphResp.Edges = append(graphResp.Edges, Edge{Source: customerIndex, Target: productIndex, Meta: record["meta"], Id: len(graphResp.Nodes) -1})
-			fmt.Println("sending graphResp:")
-			fmt.Println(graphResp)
+			relationship := record["edge"].(neo4jLib.Relationship)
 
+			productIndex := graphResp.findOrCreateNode(product.Name, "product")
+			customerIndex := graphResp.findOrCreateNode(customer.Name, "customer")
+
+			_ = graphResp.createEdge(customerIndex, productIndex, relationship.Type(), relationship.Props(), rand.Int63())
 			return nil
 		}
 
@@ -117,31 +101,32 @@ func main() {
 
 }
 
-func (g GraphResponse) findOrCreateNode(name string, label string) int {
-	targetIndex := -1
+func (g *GraphResponse) findOrCreateNode(name string, label string) int64 {
+	var targetIndex int64 = -1
 	for i, node := range g.Nodes {
-		if name == node.Id && node.Label == label {
-			targetIndex = i
+		if name == node.Title && node.Label == label {
+			targetIndex = int64(i)
 			break
 		}
 	}
 
 	if targetIndex == -1 {
-		g.Nodes = append(g.Nodes, Node{Id: name, Label: label})
-		targetIndex = len(g.Nodes) - 1
+		targetIndex = int64(len(g.Nodes))
+		g.Nodes = append(g.Nodes, Node{Title: name, Id: targetIndex, Label: label})
 	}
 
 	return targetIndex
 }
 
-func interfaceSliceToString(s []interface{}) []string {
-	o := make([]string, len(s))
-	for idx, item := range s {
-		o[idx] = item.(string)
+func (g *GraphResponse) createEdge(sourceIndex int64, targetIndex int64, edgeType string, properties map[string]interface{}, id int64) error {
+	var items int64 = 0
+	if edgeType == "BOUGHT" {
+		items = properties["items"].(int64)
 	}
-	return o
+	e := Edge{Source: sourceIndex, Target: targetIndex, Type: edgeType, Items: items, Id: id}
+	g.Edges = append(g.Edges, e)
+	return nil
 }
-
 
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
